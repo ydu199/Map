@@ -1,0 +1,269 @@
+---
+title: "Mapping Assignment"
+author: "Yu Du"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+# Set up:
+```{r setup, include=FALSE,warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(echo = FALSE, 
+               warning = FALSE,
+               message = FALSE)
+
+library(tidyverse)
+library(drat)
+library(hurricaneexposuredata)
+
+library(ggplot2)
+library(tmap)
+library(tmaptools)
+library(grid)
+library(sf)
+library(sp)
+library(spData)
+library(csodata)
+library(dplyr)
+
+addRepo("geanders")
+data("hurr_tracks")
+data("rain")
+data("county.fips")
+```
+
+# For Floyd-1999:
+```{r}
+## For Floyd-1999
+# Create a sub-dataset for the storm Floyd-1999 with hurricane data
+data("county.fips")
+#county.fips
+Floyd_hurr <- hurr_tracks %>% 
+  filter(storm_id == "Floyd-1999")
+```
+
+```{r}
+# Create a sub-dataset for the storm Floyd-1999 with rain data
+Floyd_rain <- rain %>% 
+  filter(storm_id == "Floyd-1999")
+```
+
+
+```{r, message=FALSE}
+#head(Floyd_hurr)
+#head(Floyd_rain)
+library(maps)
+# Since the rain data contains fips only, needs to convert this information into
+# longitude and latitude information 
+#head(county.fips)
+# The county.fips data contains information for fips, but fips are integers
+Floyd_rain$fips <- as.integer(Floyd_rain$fips)
+# head(Floyd_rain)
+# Now, the fips in both tables are in a consistent format. 
+```
+
+```{r, message=FALSE}
+Floyd_rain <- Floyd_rain %>% 
+  group_by(fips) %>% 
+  summarize(precip = sum(precip), precip_max = sum(precip_max))
+```
+
+```{r, message=FALSE}
+# Add the county information into our rain data set
+Floyd_rain <- left_join(Floyd_rain, county.fips, by = "fips")
+# A new row polyname is added at the end, needs to seperate into two columns
+library(magrittr)
+Floyd_rain %<>% separate(polyname, c("county1", "county2"), sep = ",")
+
+# The Floyd_rain now contains the county information as well
+```
+
+```{r}
+# Check all counties showed in the rain data
+# unique(Floyd_rain$county1)
+counties_f <- c("alabama", "arkansas", "connecticut", "delaware", "district of columbia",
+                "florida","georgia", "illinois", "indiana","iowa", "kansas", "kentucky", 
+                "louisiana","maine", "maryland","massachusetts", "michigan", "mississippi",
+                "missouri","new hampshire", "new jersey", "new york", "north carolina", 
+                "ohio", "oklahoma", "pennsylvania", "rhode island", "south carolina",
+                "tennessee", "texas","vermont","virginia", "west virginia", "wisconsin")  
+# The map_data function provides longitude and latitude information for conuties
+# head(map_data("county"))
+counties_floyd <- map_data("county", counties_f)
+state_floyd <- map_data("state", counties_f)
+```
+
+```{r}
+# Rename the rain data set for consistency
+Floyd_rain <-Floyd_rain %>% 
+  rename(region = county1, subregion = county2)
+# Add the longitude and latitude information into our rain data set
+Floyd_rain <- left_join(counties_floyd, Floyd_rain,
+                          by = c("region", "subregion"))
+```
+
+
+```{r}
+# Create different range groups that will be showed on the map based on the 
+# precip level
+Floyd_rain <- Floyd_rain %>% 
+  mutate(`Rainfall (mm)` = cut(Floyd_rain$precip, 
+                     breaks = c(0, 25, 50, 75, 100, 125, 150, 175, 200, 225),
+                     include.lowest = TRUE))
+Floyd_rain <- na.omit(Floyd_rain)
+#Floyd_rain
+```
+
+# For Allison-2001:
+```{r}
+## For Allison-2001:
+# Similar steps for Allison-2001
+Allison_hurr <- hurr_tracks %>% 
+  filter(storm_id == "Allison-2001")
+Allison_rain <- rain %>% 
+  filter(storm_id == "Allison-2001")
+```
+
+```{r, message=FALSE}
+Allison_rain$fips <- as.integer(Allison_rain$fips)
+Allison_rain <- Allison_rain %>% 
+  group_by(fips) %>% 
+  summarize(precip = sum(precip), precip_max = sum(precip_max))
+Allison_rain <- left_join(Allison_rain, county.fips, by = "fips")
+Allison_rain %<>% separate(polyname, c("county1", "county2"), sep = ",")
+```
+
+```{r}
+#unique(Allison_rain$county1)
+counties_a <- c("alabama", "arkansas", "connecticut", "delaware", "district of columbia",
+                "florida","georgia", "illinois", "indiana","iowa", "kansas", "kentucky", 
+                "louisiana","maine", "maryland","massachusetts", "michigan", "mississippi",
+                "missouri","new hampshire", "new jersey", "new york", "north carolina", 
+                "ohio", "oklahoma", "pennsylvania", "rhode island", "south carolina",
+                "tennessee", "texas","vermont","virginia", "west virginia", "wisconsin")  
+counties_allison <- map_data("county", counties_a)
+state_allison <- map_data("state", counties_a)
+```
+
+```{r}
+Allison_rain <-Allison_rain %>% 
+  rename(region = county1, subregion = county2)
+Allison_rain <- left_join(counties_allison, Allison_rain,
+                          by = c("region", "subregion"))
+```
+
+```{r}
+# Create 2 different groups that will be showed on the map based on the precip level
+Allison_rain <- Allison_rain %>% 
+  mutate(`Rain > 175mm` = ifelse(Allison_rain$precip<175, "unexposed", "exposed"))
+
+Allison_rain <- na.omit(Allison_rain)
+
+```
+
+# Floyd-1999 map with ggplot2:
+```{r}
+ggplot() + geom_polygon(data = Floyd_rain, aes(x = long, y = lat, group = group, 
+                                                 fill = `Rainfall (mm)`), 
+                        color = "grey", size = 0.2, alpha = 1.6) + 
+  geom_polygon(data = state_floyd, aes(x = long, y = lat, group = group),
+                 color="black", fill="white", size = 0.2, alpha = 0.3) +
+  geom_path(aes(x = Floyd_hurr$longitude, y = Floyd_hurr$latitude), color = "orangered4") +
+      scale_fill_brewer(palette = "Blues") +
+  ggtitle("Floyd-1999") +
+  # Center the title
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+# Allison-2001 with ggplot2:
+```{r}
+  ggplot() + geom_polygon(data = Allison_rain, aes(x = long, y = lat, group = group, 
+                                                 fill = `Rain > 175mm`), 
+                          color = "grey", size = 0.2, alpha = 1.6) +
+  geom_polygon(data = state_allison, aes(x = long, y = lat, group = group),
+                 color="black", fill="white", size = 0.2, alpha = 0.1) +
+  geom_path(aes(x = Allison_hurr$longitude, y = Allison_hurr$latitude), color = "orangered4") +
+  scale_fill_manual(values = c("navyblue", "white"))+ 
+  ggtitle("Allison-2001") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+# Floyd-1999 with tmap:
+```{r}
+#Set up for tmap:
+colnames(county.fips)[2]='ID'
+county_sf1=st_as_sf(map('county',plot=F,fill=T))
+county_sf1<-left_join(county_sf1,county.fips, by="ID")
+Fl<-right_join(county_sf1,Floyd_rain, by="fips")
+
+#Then plot tmap:
+Breaks<-c(0, 25, 50, 75, 100, 125, 150, 175, 200, 225)
+Fline<-cbind(Floyd_hurr$longitude,Floyd_hurr$latitude)%>%Line()%>%
+  Lines(ID='Floyd-1999')%>%list()%>%SpatialLines()
+tm_shape(Fl)+
+  tm_polygons("precip",palette="Blues",title="Rainfall(mm)",breaks=Breaks)+
+  tm_shape(Fline)+tm_lines(col='orangered4')+tm_layout(main.title='Floyd-1999',main.title.position = c('center', 'top'))
+```
+
+# Allison-2001 with tmap:
+```{r}
+#Set up for tmap:
+county_sf2=st_as_sf(map('county',plot=F,fill=T))
+
+county_sf2=left_join(county_sf2,county.fips,'ID')
+
+#Then plot tmap:
+Allison_line<-cbind(Allison_hurr$longitude,Allison_hurr$latitude)%>%Line()%>%
+  Lines(ID='Allison-2001')%>%list()%>%SpatialLines()
+Al<-right_join(county_sf2,Allison_rain, by="fips")
+tm_shape(Al)+
+  tm_polygons("Rain > 175mm",palette=c("navyblue","white"),title="Rain > 175 mm")+
+  tm_shape(Allison_line)+tm_lines(col='orangered4')+tm_layout(main.title='Allison-2001',main.title.position = c('center', 'top'))
+```
+
+References:
+
+
+Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686,
+  https://doi.org/10.21105/joss.01686
+
+Dirk Eddelbuettel with contributions by Carl Boettiger, Neal Fultz, Sebastian Gibb, Colin Gillespie,
+  Jan Górecki, Matt Jones, Thomas Leeper, Steven Pav, Jan Schulz, Christoph Stepper, Felix G.M. Ernst
+  and Patrick Schratz. (2020). drat: 'Drat' R Archive Template. R package version 0.1.8.
+  https://CRAN.R-project.org/package=drat
+
+Anderson B, Schumacher A, Crosson W, Al-Hamdan M, Yan M, Ferreri J, Chen Z, Quiring S, Guikema S (2020).
+_hurricaneexposuredata: Data Characterizing Exposure to Hurricanes in United States Counties_. R package
+version 0.1.0, <URL: https://github.com/geanders/hurricaneexposuredata>.
+
+ H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+
+Tennekes M (2018). “tmap: Thematic Maps in R.” _Journal of Statistical Software_, *84*(6), 1-39. doi:
+10.18637/jss.v084.i06 (URL: https://doi.org/10.18637/jss.v084.i06).
+
+ Martijn Tennekes (2020). tmaptools: Thematic Map Tools. R package version 3.1.
+  https://CRAN.R-project.org/package=tmaptools
+
+ R Core Team (2020). R: A language and environment for statistical computing. R Foundation for
+  Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+  
+ Pebesma, E., 2018. Simple Features for R: Standardized Support for Spatial Vector Data. The R Journal
+  10 (1), 439-446, https://doi.org/10.32614/RJ-2018-009
+
+Pebesma, E.J., R.S. Bivand, 2005. Classes and methods for spatial data in R. R News 5 (2),
+  https://cran.r-project.org/doc/Rnews/.
+
+Roger S. Bivand, Edzer Pebesma, Virgilio Gomez-Rubio, 2013. Applied spatial data analysis with R,
+  Second edition. Springer, NY. https://asdar-book.org/
+  
+ Roger Bivand, Jakub Nowosad and Robin Lovelace (2020). spData: Datasets for Spatial Analysis. R
+  package version 0.3.8. https://CRAN.R-project.org/package=spData  
+  
+ Eoin Horgan, Conor Crowley and Mervyn O'Luing (2020). csodata: Download Data from the CSO 'StatBank'
+  API. R package version 1.0.2. https://CRAN.R-project.org/package=csodata
+ 
+ Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2020). dplyr: A Grammar of Data
+  Manipulation. R package version 1.0.2. https://CRAN.R-project.org/package=dplyr
+  
+  
